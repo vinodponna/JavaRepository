@@ -1,0 +1,134 @@
+define([
+	"webs/props",
+	"translate!none",
+	"dust-core"
+], function(props, translate){
+
+	/**
+	 * From linked in, force argument to be of appropriate type
+	 * @param value The value representing the argument
+	 * @param type The argument type, can be undefined
+	 * @param context The property context, from the dust template
+	 * @returns {*} The passed-in value, of the appropriate type
+	 */
+	function coerce (value, type, context) {
+		if (value) {
+			switch (type || typeof(value)) {
+				case 'number': return +value;
+				case 'string': return String(value);
+				case 'boolean': {
+					value = (value === 'false' ? false : value);
+					return Boolean(value);
+				}
+				case 'date': return new Date(value);
+				case 'context': return context.get(value);
+			}
+		}
+
+		return value;
+	}
+
+	/* Globally available dust helpers */
+	var base = dust.makeBase({
+		// return the value of the fiven webs property. Must be put into webs/props
+		websProp: function(chunk, context, bodies, args){
+			return chunk.write(props[args.name]);
+		},
+
+		// return the localization of the provided key or command.
+		// You must load the appropriate strings yourself with the translate! require plugin
+		l: function(chunk, context, bodies, args){
+			// support dynamic keys e.g. {#l}webs.pages.pagelist.hover.Move{pageType}{/l}
+			args = args || {};
+			var originalChunkLength = chunk.data.length;
+
+			// have dust do any variable replacement that happens in this key:
+			bodies.block(chunk, context);
+
+			// remove already-replaced translation key from the chunk of data
+			// that has yet to be translated:
+			var translationKeyArray = chunk.data.splice(originalChunkLength, chunk.data.length - originalChunkLength);
+
+			// translate the key:
+			var translatedValue = translate(translationKeyArray.join(""), args);
+
+			// add the translated value back into the chunk data:
+			return chunk.write(translatedValue);
+		},
+
+		/**
+		 * from linkedin-dust, but a helper, not a base
+		 ne helper compares the given key is not the same as the expected value
+		 It can be used standalone or in conjunction with select for multiple branching
+		 @param key,  The actual key to be compared ( optional when helper used in conjunction with select)
+		 either a string literal value or a dust reference
+		 a string literal value, is enclosed in double quotes, e.g. key="foo"
+		 a dust reference may or may not be enclosed in double quotes, e.g. key="{val}" and key=val are both valid
+		 @param value, The expected value to compare to, when helper is used standalone or in conjunction with select
+		 @param type (optional), supported types are  number, boolean, string, date, context, defaults to string
+		 Note : use type="number" when comparing numeric
+		 **/
+		"ne": function(chunk, context, bodies, args) {
+			if(args) {
+				if(coerce(args.key, args.type, context) !== coerce(args.value, args.type, context)) {
+					var body = bodies.block;
+					if(body) {
+						return chunk.render(body, context);
+					}
+					else {
+						console.log( "Missing body block in the 'ne' helper ");
+						return chunk;
+					}
+				}
+			}
+			return chunk;
+		},
+
+		"eq": function(chunk, context, bodies, args) {
+			if(args) {
+				if(coerce(args.key, args.type, context) === coerce(args.value, args.type, context)) {
+					var body = bodies.block;
+					if(body) {
+						return chunk.render(body, context);
+					}
+					else {
+						console.log( "Missing body block in the 'eq' helper ");
+						return chunk;
+					}
+				}
+			}
+			return chunk;
+		},
+
+		"gt": function(chunk, context, bodies, args) {
+			if(args) {
+				if(coerce(args.key, args.type, context) > coerce(args.value, args.type, context)) {
+					var body = bodies.block;
+					if(body) {
+						return chunk.render(body, context);
+					}
+					else {
+						console.log( "Missing body block in the 'gt' helper ");
+						return chunk;
+					}
+				}
+			}
+			return chunk;
+		},
+
+		"sep": function(chunk, context, bodies) {
+			var body = bodies.block;
+			if (context.stack.index === context.stack.of - 1) {
+				return chunk;
+			}
+			if(body) {
+				return bodies.block(chunk, context);
+			}
+			else {
+				return chunk;
+			}
+		}
+	});
+
+	return base;
+});

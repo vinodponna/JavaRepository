@@ -1,0 +1,139 @@
+(function (root, factory) {
+	if (typeof define === 'function' && define.amd) {
+		// AMD. Register as an anonymous module.
+		define('referrer', [], factory);
+	}
+
+	factory().run();
+}(this, function () {
+
+	var referrerProcessor = {
+
+		// www.webs.com -> webs.com
+		// members.webs.com -> webs.com
+		// fr.webs.com -> webs.com
+		// webs.soy -> webs.soy
+		getTld: function() {
+			var host = document.location.host;
+			return host.slice(host.indexOf('webs'));
+		},
+
+		// this check ensures that the w_referer doesn't get set from following internal links
+		withinTLD: function(s) {
+			return /^https?:\/\/((\w+\.)+)?webs/.test(s);
+		},
+
+		/**
+		 * Special characters in cookies can be tricky.
+		 * Add Tomcat into the mix and things get even trickier.
+		 *
+		 * @return an encoded value that can be set in document.cookie
+		 */
+		encodeCookieValue: function(value) {
+			// http://tomcat.apache.org/tomcat-5.5-doc/servletapi/javax/servlet/http/Cookie.html#setValue%28java.lang.String%29
+			var specials = new RegExp(/[,; ()<>@,;:"/\[\]?={}\t]/g);
+			if(specials.test(value)) {
+				value = '"' + value.replace('"', '\\"') + '"';
+			}
+			return value;
+		},
+
+		setCookie: function(name,value,days) {
+			var expires;
+			if(typeof(days) === 'undefined') days = 30;
+			if(days) {
+				var date = new Date();
+				date.setTime(date.getTime()+(days*24*60*60*1000));
+				expires = "; expires="+date.toGMTString();
+			}
+			else expires = "";
+
+			document.cookie = name+"="+referrerProcessor.encodeCookieValue(value)+expires+"; domain=." + referrerProcessor.getTld() + "; path=/";
+		},
+
+		getCookie: function(name) {
+			var nameEQ = name + "=",
+				ca = document.cookie.split(';');
+			for(var i=0;i < ca.length;i++) {
+				var c = ca[i];
+				while(c.charAt(0)==' ') c = c.substring(1,c.length);
+				if(c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length,c.length);
+			}
+			return null;
+		},
+
+		getParameter: function(name) {
+			name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+			var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+				results = regex.exec(location.search);
+			return results ? decodeURIComponent(results[1].replace(/\+/g, " ")) : null;
+		},
+
+		/**
+		 * This function determines
+		 * whether or not to set/override the w_referer cookie.
+		 * If it returns a non-null value,
+		 * the cookie should be set with that value.
+		 *
+		 * @param cookie - w_referer cookie
+		 * @param header - HTTP referer header
+		 * @param param - referer query param
+		 * @param force - referer_f query param (truthy or falsy)
+		 * @return new referer value to set in the w_referer cookie,
+		 *         or nil if no new value should be set
+		 */
+		getUpdatedRefererValue: function(cookie, header, param, force) {
+			var updateReferer = false;
+
+			// Get referer from cookie if it exists, otherwise get referer header
+			var referer = cookie,
+				newReferer = null;
+
+			if(!referer && header) {
+				newReferer = header;
+				updateReferer = true;
+			}
+
+			if(param) {
+				newReferer = param;
+			}
+
+			if (newReferer) {
+				if (!referer || force) {
+					// Update referer if forced or referer is null
+					updateReferer = true;
+				} else {
+
+					// Replace old referer with properly sourced referer if it is not currently properly sourced
+					if (referer.indexOf("cpc_") < 0 || referer.indexOf("cpm_") < 0 || referer.indexOf("ppc_") < 0) {
+						if (newReferer.indexOf("cpc_") >= 0 || newReferer.indexOf("cpm_") >= 0 || newReferer.indexOf("ppc_") >= 0) {
+							updateReferer = true;
+						}
+					}
+				}
+
+				if(updateReferer && !referrerProcessor.withinTLD(newReferer)) {
+					return newReferer;
+				}
+			}
+
+			return null;
+		},
+
+		run: function() {
+			var newReferer = this.getUpdatedRefererValue(
+				referrerProcessor.getCookie('w_referer'),
+				typeof(document.referrer) === 'string' ? document.referrer : null,
+				referrerProcessor.getParameter('referer'),
+				referrerProcessor.getParameter('referer_f')
+			);
+			if(newReferer) {
+				referrerProcessor.setCookie('w_referer', newReferer);
+			}
+		}
+
+	};
+
+	return referrerProcessor;
+
+}));
